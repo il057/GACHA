@@ -1,9 +1,327 @@
 @import "tailwindcss";
 
-body {
-  margin: 0;
-  padding: 0;
-  background-color: #0f1015;
-  color: #e5e7eb;
+@layer base {
+  :root {
+    --comic-red: #E23636;
+    --comic-blue: #1E90FF;
+    --comic-yellow: #FFD700;
+    --comic-green: #00D084;
+    --comic-purple: #9333EA;
+    --comic-paper: #FFFEF0;
+    --comic-paper-dark: #F4F1DE;
+    --comic-dark: #242424;
+    --comic-black: #000000;
+    --font-heading: "Tiejili SC", 'Bangers', cursive, 'Impact', sans-serif;
+    --font-comic: "HappyZcool-2016", 'Comic Neue', cursive, sans-serif;
+  }
+
+  body {
+    margin: 0;
+    padding: 0;
+    background-color: #1A1A1A;
+    color: #111111;
+    font-family: var(--font-comic);
+    letter-spacing: 0.02em;
+    user-select: none;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+/* 漫画经典字体类 */
+.font-bangers, .font-title {
+  font-family: var(--font-heading);
+  letter-spacing: 0.05em;
+}
+
+.font-comic, .font-body {
+  font-family: var(--font-comic);
+}
+
+/* Ben-Day 半色调圆点网格纹理 (Halftone Dots) */
+.bg-halftone-paper {
+  background-color: var(--comic-paper);
+  background-image: radial-gradient(rgba(0, 0, 0, 0.12) 1.5px, transparent 1.5px);
+  background-size: 8px 8px;
+}
+
+.bg-halftone-dark {
+  background-color: #242424;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.08) 1.5px, transparent 1.5px);
+  background-size: 8px 8px;
+}
+
+.bg-halftone-yellow {
+  background-color: var(--comic-yellow);
+  background-image: radial-gradient(rgba(226, 54, 54, 0.25) 2px, transparent 2px);
+  background-size: 10px 10px;
+}
+
+.bg-halftone-blue {
+  background-color: var(--comic-blue);
+  background-image: radial-gradient(rgba(0, 0, 0, 0.2) 2px, transparent 2px);
+  background-size: 10px 10px;
+}
+
+.bg-halftone-red {
+  background-color: var(--comic-red);
+  background-image: radial-gradient(rgba(255, 215, 0, 0.25) 2px, transparent 2px);
+  background-size: 10px 10px;
+}
+
+/* 经典放射状动作速度线 (Speedlines) */
+.comic-speedlines {
+  background: repeating-conic-gradient(
+    from 0deg,
+    rgba(255, 255, 255, 0.15) 0deg 5deg,
+    transparent 5deg 10deg
+  );
+}
+
+.comic-speedlines-dark {
+  background: repeating-conic-gradient(
+    from 0deg,
+    rgba(0, 0, 0, 0.08) 0deg 4deg,
+    transparent 4deg 12deg
+  );
+}
+
+/* 纯黑实体描边与零羽化立体硬阴影 */
+.comic-border {
+  border: 3px solid #000000;
+  box-shadow: 4px 4px 0px #000000;
+}
+
+.comic-border-sm {
+  border: 2px solid #000000;
+  box-shadow: 2px 2px 0px #000000;
+}
+
+.comic-border-lg {
+  border: 4px solid #000000;
+  box-shadow: 6px 6px 0px #000000;
+}
+
+.comic-border-inset {
+  border: 3px solid #000000;
+  box-shadow: inset 3px 3px 0px rgba(0, 0, 0, 0.2);
+}
+
+/* 漫画按钮交互：按压顿感立体回弹 */
+.comic-btn {
+  border: 3px solid #000000;
+  box-shadow: 4px 4px 0px #000000;
+  transition: transform 0.08s ease, box-shadow 0.08s ease;
+  font-family: var(--font-heading);
+}
+
+.comic-btn:hover:not(:disabled) {
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0px #000000;
+}
+
+.comic-btn:active:not(:disabled) {
+  transform: translate(2px, 2px);
+  box-shadow: 2px 2px 0px #000000;
+}
+
+.comic-btn:disabled {
+  opacity: 0.55;
+  filter: grayscale(0.8);
+  cursor: not-allowed;
+  transform: none !important;
+  box-shadow: 2px 2px 0px #000000 !important;
+}
+
+/* 漫画立体文字阴影 */
+.comic-text-shadow {
+  text-shadow: 
+    2px 2px 0px #000,
+    -1px -1px 0px #000,
+    1px -1px 0px #000,
+    -1px 1px 0px #000,
+    3px 3px 0px #000;
+}
+
+.comic-text-pop-red {
+  text-shadow: 
+    2px 2px 0px #000,
+    4px 4px 0px var(--comic-red);
+}
+
+.comic-text-pop-yellow {
+  text-shadow: 
+    2px 2px 0px #000,
+    4px 4px 0px var(--comic-yellow);
+}
+
+.comic-text-pop-blue {
+  text-shadow: 
+    2px 2px 0px #000,
+    4px 4px 0px var(--comic-blue);
+}
+
+/* 对话气泡 (Speech Bubble) 小尾巴 */
+.speech-bubble {
+  position: relative;
+  background: var(--comic-paper);
+  border: 3px solid #000000;
+  box-shadow: 4px 4px 0px #000000;
+  border-radius: 12px;
+}
+
+.speech-bubble-tail-bottom::after {
+  content: '';
+  position: absolute;
+  bottom: -14px;
+  left: 24px;
+  border-width: 14px 12px 0;
+  border-style: solid;
+  border-color: #000000 transparent;
+  display: block;
+  width: 0;
+}
+
+.speech-bubble-tail-bottom::before {
+  content: '';
+  position: absolute;
+  bottom: -9px;
+  left: 26px;
+  border-width: 11px 9px 0;
+  border-style: solid;
+  border-color: var(--comic-paper) transparent;
+  display: block;
+  width: 0;
+  z-index: 1;
+}
+
+/* 旁白文本框 (Narrator Caption Box) */
+.comic-caption-box {
+  background-color: var(--comic-yellow);
+  border: 2px solid #000000;
+  box-shadow: 3px 3px 0px #000000;
+  font-family: var(--font-heading);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* 经典爆炸星形 (Starburst / Explosion) */
+.comic-starburst {
+  clip-path: polygon(
+    50% 0%, 63% 28%, 95% 15%, 78% 42%, 100% 60%, 72% 70%, 75% 100%, 50% 82%, 25% 100%, 28% 70%, 0% 60%, 22% 42%, 5% 15%, 37% 28%
+  );
+}
+
+.comic-burst-sm {
+  clip-path: polygon(
+    50% 0%, 65% 25%, 100% 30%, 75% 60%, 90% 100%, 50% 80%, 10% 100%, 25% 60%, 0% 30%, 35% 25%
+  );
+}
+
+/* 杰克·科比宇宙能量暗黑圆点 (Kirby Krackle Effect) */
+@keyframes kirby-pulse {
+  0%, 100% {
+    transform: scale(1) rotate(0deg);
+    filter: drop-shadow(0 0 8px rgba(255, 215, 0, 0.8));
+  }
+  50% {
+    transform: scale(1.05) rotate(1deg);
+    filter: drop-shadow(0 0 16px rgba(226, 54, 54, 0.9));
+  }
+}
+
+.animate-kirby-krackle {
+  animation: kirby-pulse 1.8s infinite ease-in-out;
+}
+
+@keyframes comic-float {
+  0%, 100% { transform: translateY(0px) rotate(-1deg); }
+  50% { transform: translateY(-4px) rotate(1deg); }
+}
+
+.animate-comic-float {
+  animation: comic-float 3s ease-in-out infinite;
+}
+
+/* 激活卡包动效 (Active Pack Pulsing Comic Border) */
+@keyframes pack-glow {
+  0%, 100% {
+    box-shadow: 4px 4px 0px #000, 0 0 0 3px #FFD700;
+  }
+  50% {
+    box-shadow: 6px 6px 0px #000, 0 0 0 3px #E23636, 0 0 14px rgba(226, 54, 54, 0.45);
+  }
+}
+
+.animate-pack-active {
+  animation: pack-glow 2.2s infinite ease-in-out;
+}
+
+/* 弹出拟声词动作动画 (SFX POP) */
+@keyframes sfx-explode {
+  0% {
+    opacity: 0;
+    transform: scale(0.2) rotate(-15deg);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.25) rotate(5deg);
+  }
+  75% {
+    transform: scale(0.95) rotate(-3deg);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
+}
+
+.animate-sfx-pop {
+  animation: sfx-explode 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* 卡牌飞入 / 破框动画 */
+@keyframes card-smash-in {
+  0% {
+    opacity: 0;
+    transform: scale(1.4) translateY(-30px) rotate(8deg);
+  }
+  70% {
+    opacity: 1;
+    transform: scale(0.96) translateY(4px) rotate(-2deg);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0) rotate(0deg);
+  }
+}
+
+.animate-card-smash {
+  animation: card-smash-in 0.3s cubic-bezier(0.2, 1, 0.3, 1) both;
+}
+
+/* 纸张微倾斜视觉修饰 */
+.skew-comic-1 {
+  transform: rotate(-1.2deg);
+}
+
+.skew-comic-2 {
+  transform: rotate(1.2deg);
+}
+
+/* 自定义漫画滚动条 */
+aside::-webkit-scrollbar, main::-webkit-scrollbar, div::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+aside::-webkit-scrollbar-track, main::-webkit-scrollbar-track, div::-webkit-scrollbar-track {
+  background: #000;
+}
+aside::-webkit-scrollbar-thumb, main::-webkit-scrollbar-thumb, div::-webkit-scrollbar-thumb {
+  background: var(--comic-yellow);
+  border: 2px solid #000;
+  border-radius: 0px;
+}
+aside::-webkit-scrollbar-thumb:hover, main::-webkit-scrollbar-thumb:hover, div::-webkit-scrollbar-thumb:hover {
+  background: var(--comic-red);
 }
 

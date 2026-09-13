@@ -49,7 +49,7 @@ export class EffectManager {
         currentValue = mod.apply({ card, value: currentValue, isNew }) || currentValue;
       }
     }
-    return Math.max(0, Math.floor(currentValue));
+    return Math.max(1, Math.floor(currentValue));
   }
 
   // 计算每抽的额外返款 (例如海洋包全鱼羁绊)

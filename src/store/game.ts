@@ -1,4 +1,4 @@
-﻿import { defineStore } from 'pinia';
+import { defineStore } from 'pinia';
 import { GachaEngine } from '../engine/GachaEngine';
 import { mockCards, availableUpgrades, availablePacks, metaSkills } from '../utils/mockData';
 import type { Card, PackConfig } from '../types';
@@ -52,9 +52,11 @@ export const saveGameState = (state: StoreState) => {
 export const useGameStore = defineStore('game', {
   state: (): StoreState => {
     const saved = loadGameState();
+    const defaultStart = 200;
+    const initialCoins = saved.coins ?? defaultStart;
     return {
-      coins: saved.coins ?? 200,
-      totalEarned: saved.totalEarned ?? 0,
+      coins: initialCoins,
+      totalEarned: saved.totalEarned ?? initialCoins,
       totalPullsThisRun: saved.totalPullsThisRun ?? 0,
       library: saved.library ?? {},
       upgrades: saved.upgrades ?? {},
@@ -94,7 +96,7 @@ export const useGameStore = defineStore('game', {
         const targetCount = minCount + 1;
         const currentCount = tempLib[c.id] || 0;
         
-        if (currentCount < targetCount) {
+        if (minCount < 5 && currentCount < targetCount && currentCount < 5) {
           tempLib[c.id] = currentCount + 1;
         } else {
           val += engine.effectManager.getModifiedCardValue(c);
@@ -204,7 +206,7 @@ export const useGameStore = defineStore('game', {
       if (fireStars > 0) {
         engine.effectManager.addModifier({
           id: 'bond_fire', type: 'price',
-          apply: ({ price }) => Math.max(1, Math.floor(price * (1 - fireStars * 0.08)))
+          apply: ({ price, pack }) => pack?.id === 'pack_fire' ? Math.max(1, Math.floor(price * (1 - fireStars * 0.08))) : price
         });
       }
 
@@ -319,7 +321,6 @@ export const useGameStore = defineStore('game', {
     },
 
     buyMetaUpgrade(skillId: string) {
-      if (!this.gameOver) return;
       // @ts-ignore
       const skill = metaSkills?.find(s => s.id === skillId);
       if (!skill) return;
@@ -332,13 +333,14 @@ export const useGameStore = defineStore('game', {
         this.metaPoints -= cost;
         this.metaUpgrades[skillId] = currentLevel + 1;
         saveMetaPoints(this.metaPoints);
+        this.initEngine();
       }
     },
 
     surrender() {
       if (this.gameOver) return;
       this.gameOver = true;
-      const gainedPoints = Math.floor(this.totalEarned / 200);
+      const gainedPoints = Math.floor(this.totalEarned / 50);
       if (gainedPoints > 0) {
         this.metaPoints += gainedPoints;
         saveMetaPoints(this.metaPoints);
@@ -400,7 +402,7 @@ export const useGameStore = defineStore('game', {
         const targetCount = minCount + 1;
         const currentCount = this.library[card.id] || 0;
         
-        if (currentCount < targetCount) {
+        if (minCount < 5 && currentCount < targetCount && currentCount < 5) {
           this.library[card.id] = currentCount + 1;
           newlyCollected = true;
         } else {
@@ -486,8 +488,9 @@ export const useGameStore = defineStore('game', {
     },
 
     restartGame() {
-      this.coins = 200 + (this.metaUpgrades["ms_start_funds"] || 0) * 150;
-      this.totalEarned = 0;
+      const startCoins = 200 + (this.metaUpgrades["ms_start_funds"] || 0) * 150;
+      this.coins = startCoins;
+      this.totalEarned = startCoins;
       this.totalPullsThisRun = 0;
       this.currentSessionCards = [];
       this.library = {};
