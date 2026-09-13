@@ -17,6 +17,12 @@ store.$subscribe((_mutation, state) => {
   saveGameState(state);
 });
 
+watch(() => store.isSoftLocked, (val) => {
+  if (val && !store.gameOver) {
+    store.checkGameOver();
+  }
+}, { immediate: true });
+
 const unlockedPacks = computed(() => {
   return availablePacks.filter(p => p.unlockThreshold <= store.totalEarned);
 });
@@ -57,6 +63,7 @@ const activeSfxList = ref<ComicSfx[]>([]);
 let sfxCounter = 0;
 
 const triggerSfx = (text: string, color: 'yellow' | 'red' | 'blue' | 'purple' = 'yellow', subText?: string) => {
+  if (store.isSoftLocked || store.gameOver) return;
   const id = ++sfxCounter;
   const x = Math.floor(Math.random() * 60) - 30;
   const y = Math.floor(Math.random() * 30) - 15;
@@ -66,6 +73,36 @@ const triggerSfx = (text: string, color: 'yellow' | 'red' | 'blue' | 'purple' = 
   }, 950);
 };
 
+watch(() => store.isSoftLocked || store.gameOver, (isOver) => {
+  if (isOver) {
+    activeSfxList.value = [];
+  }
+}, { immediate: true });
+
+const affordablePulls = computed(() => {
+  if (!selectedPack.value) return 0;
+  const price = store.getEngine().getPackPrice(selectedPack.value);
+  if (price <= 0) return 0;
+  return Math.floor(store.coins / price);
+});
+
+const multiPullCount = computed(() => {
+  if (affordablePulls.value >= 10) return 10;
+  if (affordablePulls.value >= 2) return affordablePulls.value;
+  return 10;
+});
+
+const multiPullPrice = computed(() => {
+  if (!selectedPack.value) return 0;
+  const price = store.getEngine().getPackPrice(selectedPack.value);
+  return price * multiPullCount.value;
+});
+
+const canMultiPull = computed(() => {
+  if (!selectedPack.value) return false;
+  return affordablePulls.value >= 2;
+});
+
 const handleBuy = (count: number) => {
   if (!selectedPack.value) return;
   const packPrice = store.getEngine().getPackPrice(selectedPack.value) * count;
@@ -73,6 +110,8 @@ const handleBuy = (count: number) => {
 
   if (count >= 10) {
     triggerSfx('KABOOM!', 'red', '十连连打 • 10x BARRAGE!');
+  } else if (count > 1) {
+    triggerSfx('KABOOM!', 'red', `${count}连连打 • ${count}x BARRAGE!`);
   } else {
     triggerSfx('POW!', 'yellow', '英雄召唤 • HERO DRAW!');
   }
@@ -111,8 +150,11 @@ const getRarityBadgeStyle = (rarity: string) => {
 
 const getPackBorderColor = (packId: string) => {
   if (packId === "pack_pity") return "border-[#1E90FF] ring-2 ring-[#1E90FF]";
-  if (packId === "pack_fire") return "border-[#E23636] ring-2 ring-[#E23636]";
+  if (packId === "pack_forest") return "border-[#10B981] ring-2 ring-[#10B981]";
   if (packId === "pack_ocean") return "border-[#00D084] ring-2 ring-[#00D084]";
+  if (packId === "pack_fire") return "border-[#E23636] ring-2 ring-[#E23636]";
+  if (packId === "pack_machina") return "border-[#F59E0B] ring-2 ring-[#F59E0B]";
+  if (packId === "pack_astral") return "border-[#9333EA] ring-2 ring-[#C084FC]";
   return "border-[#FFD700] ring-2 ring-[#FFD700]";
 };
 
@@ -570,18 +612,25 @@ const handleCollectSelected = () => {
 };
 
 const handleSellAll = () => {
-  triggerSfx('KA-CHING!!', 'yellow', `军饷入账 +${store.sellAllPendingValue} G!`);
+  const sellVal = store.sellAllPendingValue;
   store.sellAllPending();
+  if (!store.isSoftLocked && !store.gameOver) {
+    triggerSfx('KA-CHING!!', 'yellow', `军饷入账 +${sellVal} G!`);
+  }
 };
 
 const handleCollectNew = () => {
-  triggerSfx('TACTICAL!', 'blue', '战术整编 • 藏新卖旧');
   store.collectNewAndSellRest();
+  if (!store.isSoftLocked && !store.gameOver) {
+    triggerSfx('TACTICAL!', 'blue', '战术整编 • 藏新卖旧');
+  }
 };
 
 const handleCollectAll = () => {
-  triggerSfx('SAVED!', 'purple', '全收手办 • 载入英雄密档');
   store.collectAllPending();
+  if (!store.isSoftLocked && !store.gameOver) {
+    triggerSfx('SAVED!', 'purple', '全收手办 • 载入英雄密档');
+  }
 };
 
 watch(() => store.currentSessionCards.length, () => {
@@ -592,8 +641,11 @@ watch(() => store.currentSessionCards.length, () => {
 <template>
   <div class="fixed inset-0 w-full bg-[#181818] text-[#111111] flex flex-col overflow-hidden font-body select-none">
     
-    <!-- SFX 动态拟声词动画悬浮层 (独立置顶 z-[100]，文字层彻底脱离 clip-path 裁切) -->
-    <div class="fixed inset-0 pointer-events-none z-[100] overflow-hidden flex items-center justify-center">
+    <!-- SFX 动态拟声词动画悬浮层 (独立置顶 z-[100]，结算时完全隐藏杜绝遮挡) -->
+    <div 
+      v-if="!store.isSoftLocked && !store.gameOver" 
+      class="fixed inset-0 pointer-events-none z-[100] overflow-hidden flex items-center justify-center"
+    >
       <transition-group name="sfx">
         <div 
           v-for="sfx in activeSfxList" 
@@ -602,20 +654,26 @@ watch(() => store.currentSessionCards.length, () => {
           :style="{ transform: `translate(${sfx.x}px, ${sfx.y}px)` }"
         >
           <div class="relative flex items-center justify-center min-w-[280px] min-h-[220px]">
-            <!-- 爆炸星形底衬 (纯背景，绝不包含文字，不裁切内部内容) -->
+            <!-- 爆炸花纹底衬：根据色彩定制专属漫画爆破轮廓，拒绝千篇一律 -->
             <div 
-              class="absolute w-52 h-52 md:w-72 md:h-72 comic-starburst transform -rotate-6 shadow-[0_8px_0_#000]"
+              class="absolute w-52 h-52 md:w-72 md:h-72 transform -rotate-6 shadow-[0_8px_0_#000]"
               :class="[
-                sfx.color === 'yellow' ? 'bg-[#FFD700]' : '',
-                sfx.color === 'red' ? 'bg-[#E23636]' : '',
-                sfx.color === 'blue' ? 'bg-[#1E90FF]' : '',
-                sfx.color === 'purple' ? 'bg-[#9333EA]' : '',
+                sfx.color === 'yellow' ? 'comic-starburst bg-[#FFD700]' : '',
+                sfx.color === 'red' ? 'comic-burst-electric bg-[#E23636]' : '',
+                sfx.color === 'blue' ? 'comic-burst-faceted bg-[#1E90FF]' : '',
+                sfx.color === 'purple' ? 'comic-impact-crater bg-[#9333EA]' : '',
               ]"
             ></div>
             
-            <!-- 叠加一层深色描边对比星形，增强漫画感 -->
+            <!-- 叠加一层深色对比爆破，增强漫画质感与剪影张力 -->
             <div 
-              class="absolute w-44 h-44 md:w-60 md:h-60 comic-starburst bg-black/20 transform rotate-12"
+              class="absolute w-44 h-44 md:w-60 md:h-60 bg-black/25 transform rotate-12"
+              :class="[
+                sfx.color === 'yellow' ? 'comic-starburst' : '',
+                sfx.color === 'red' ? 'comic-burst-electric' : '',
+                sfx.color === 'blue' ? 'comic-burst-faceted' : '',
+                sfx.color === 'purple' ? 'comic-impact-crater' : '',
+              ]"
             ></div>
 
             <!-- 文字层 (完全独立于星形之上，z-20，字形饱满清晰) -->
@@ -822,7 +880,7 @@ watch(() => store.currentSessionCards.length, () => {
                   {{ pack.basePrice }} G
                 </span>
               </div>
-              <span class="text-[10px] text-slate-500 font-bold">5张/包</span>
+              <span class="text-[10px] text-slate-500 font-bold">单抽/连打</span>
             </div>
 
             <!-- 出率概率网格 (始终清晰呈现) -->
@@ -874,8 +932,8 @@ watch(() => store.currentSessionCards.length, () => {
                     Lv.{{ store.upgrades[upg.id] || 0 }}/{{upg.maxLevel}}
                   </span>
                 </span>
-                <span :class="store.coins >= Math.floor(upg.basePrice * Math.pow(upg.priceMultiplier, store.upgrades[upg.id] || 0)) ? 'text-red-600 font-title text-sm' : 'text-slate-400 font-title text-sm'">
-                  {{ Math.floor(upg.basePrice * Math.pow(upg.priceMultiplier, store.upgrades[upg.id] || 0)) }} G
+                <span :class="store.coins >= store.getUpgradePrice(upg.id) ? 'text-red-600 font-title text-sm' : 'text-slate-400 font-title text-sm'">
+                  {{ store.getUpgradePrice(upg.id) }} G
                 </span>
               </div>
               <div class="text-[10px] text-slate-600 font-bold leading-tight">{{ upg.desc(store.upgrades[upg.id] || 0) }}</div>
@@ -939,55 +997,18 @@ watch(() => store.currentSessionCards.length, () => {
           class="flex-1 p-3 md:p-5 overflow-y-auto w-full pb-44 md:pb-36 flex flex-col items-center bg-[#F7F4EA] bg-halftone-paper relative" 
           @click="clearSelection"
         >
-          <!-- 破产/结算画面：大画框爆炸效果 -->
-          <div v-if="store.isSoftLocked || store.gameOver" class="h-full flex flex-col items-center justify-center m-auto animate-card-smash max-w-lg text-center p-4">
-            <div class="relative mb-3">
-              <div class="w-28 h-28 md:w-36 md:h-36 comic-starburst bg-[#E23636] mx-auto flex items-center justify-center border-4 border-black shadow-[4px_4px_0_#000]">
-                <span class="font-title text-3xl md:text-5xl text-[#FFD700] comic-text-shadow transform -rotate-6">CRASH!</span>
-              </div>
-            </div>
-
-            <h3 class="font-title text-3xl md:text-5xl text-black comic-text-shadow mb-1">
-              {{ store.isSoftLocked ? '军饷告罄 • 宣告破产！' : '急流勇退 • 凯旋结算！' }}
-            </h3>
-
-            <p class="text-sm md:text-base font-bold text-slate-700 mb-4 speech-bubble p-3">
-              {{ store.isSoftLocked ? '“所有的军饷与后备资源均已耗尽，但这并不是终点，量子多元宇宙正在重组！”' : '“你在巅峰时刻选择保存实力，积蓄的大笔战资将成为下一个轮回的基石！”' }}<br/>
-              本局总入账达到 <span class="text-red-600 font-title text-xl">{{ store.totalEarned }} G</span>
-            </p>
-
-            <div class="comic-border bg-[#FFF9C4] p-3 w-full mb-4 transform -rotate-1">
-              <div class="text-xs font-bold text-slate-700">根据战资转化的跨轮回狂热点：</div>
-              <div class="font-title text-3xl md:text-4xl text-[#1E90FF] comic-text-shadow">
-                +{{ Math.floor(store.totalEarned / 50) }} 狂热点
-              </div>
-            </div>
-
-            <div class="flex flex-wrap gap-2.5 justify-center w-full">
-              <button 
-                @click="showMetaTree = true" 
-                class="comic-btn bg-[#1E90FF] hover:bg-blue-400 text-[#FFD700] px-5 py-2.5 text-base md:text-lg flex items-center gap-2 cursor-pointer"
-              >
-                <Icon icon="mdi:atom-variant" class="text-xl" />
-                进入多元宇宙天赋树 ({{ store.metaPoints }}点)
-              </button>
-
-              <button 
-                @click="store.restartGame(); showMetaTree = false; triggerSfx('REBIRTH!', 'yellow')" 
-                class="comic-btn bg-[#00D084] hover:bg-emerald-400 text-black px-6 py-2.5 text-base md:text-lg cursor-pointer"
-              >
-                开启崭新轮回！
-              </button>
-            </div>
-          </div>
-
           <!-- 无卡牌时的美漫分格等待插画 (鲜艳标题，绝不黑化模糊) -->
           <div 
-            v-else-if="store.currentSessionCards.length === 0" 
+            v-if="store.currentSessionCards.length === 0" 
             class="h-full flex flex-col items-center justify-center text-slate-600 m-auto text-center p-4"
           >
-            <div class="w-24 h-24 md:w-32 md:h-32 rounded-full border-4 border-black bg-[#FFD700] flex items-center justify-center shadow-[4px_4px_0_#000] mb-3 transform -rotate-3 comic-speedlines">
-              <Icon icon="mdi:cards" class="text-5xl md:text-6xl text-slate-900 drop-shadow" />
+            <!-- 复古漫画双圈战术罗盘与坐标十字轴取代千篇一律的爆炸花纹 -->
+            <div class="relative w-24 h-24 md:w-28 md:h-28 flex items-center justify-center mb-3">
+              <div class="absolute inset-0 rounded-full bg-[#FFD700] border-4 border-black shadow-[4px_4px_0_#000]"></div>
+              <div class="absolute inset-2 rounded-full border-2 border-dashed border-black/70 animate-spin" style="animation-duration: 25s;"></div>
+              <div class="absolute w-full h-0.5 bg-black/40"></div>
+              <div class="absolute h-full w-0.5 bg-black/40"></div>
+              <Icon icon="mdi:cards-playing-outline" class="text-4xl md:text-5xl text-slate-900 drop-shadow relative z-10" />
             </div>
             <div class="font-title text-2xl md:text-4xl text-[#E23636] comic-text-shadow mb-1 tracking-wider leading-tight">
               等待英雄召唤 • READY FOR ACTION!
@@ -1223,20 +1244,20 @@ watch(() => store.currentSessionCards.length, () => {
             <button 
               @click="handleBuy(1)"
               :disabled="store.coins < store.getEngine().getPackPrice(selectedPack)"
-              class="comic-btn bg-white hover:bg-slate-100 text-slate-900 py-2 md:py-2.5 px-4 md:px-7 text-sm md:text-lg flex-1 md:flex-none max-w-[200px] flex items-center justify-center gap-1.5 cursor-pointer"
+              class="comic-btn bg-white hover:bg-slate-100 text-slate-900 py-2 md:py-2.5 px-4 md:px-7 text-sm md:text-lg flex-1 md:flex-none max-w-[200px] flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Icon icon="mdi:flash" class="text-amber-500 text-lg" />
               <span>单抽 ({{ store.getEngine().getPackPrice(selectedPack) }}G)</span>
             </button>
 
-            <!-- 十连抽 -->
+            <!-- 动态连抽 (大于1小于10时为 x连连打，>=10 时为 十连连打) -->
             <button 
-              @click="handleBuy(10)"
-              :disabled="store.coins < store.getEngine().getPackPrice(selectedPack) * 10"
-              class="comic-btn bg-[#E23636] hover:bg-red-500 text-[#FFD700] py-2 md:py-2.5 px-6 md:px-10 text-base md:text-xl flex-1 md:flex-none max-w-[280px] flex items-center justify-center gap-1.5 cursor-pointer tracking-wider"
+              @click="handleBuy(multiPullCount)"
+              :disabled="!canMultiPull"
+              class="comic-btn bg-[#E23636] hover:bg-red-500 text-[#FFD700] py-2 md:py-2.5 px-6 md:px-10 text-base md:text-xl flex-1 md:flex-none max-w-[280px] flex items-center justify-center gap-1.5 cursor-pointer tracking-wider disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Icon icon="mdi:star-four-points" class="text-yellow-300 text-xl animate-spin" style="animation-duration: 4s;" />
-              <span>十连连打! ({{ store.getEngine().getPackPrice(selectedPack) * 10 }}G)</span>
+              <span>{{ multiPullCount === 10 ? '十连连打!' : `${multiPullCount}连连打!` }} ({{ multiPullPrice }}G)</span>
             </button>
           </div>
 
@@ -1357,6 +1378,127 @@ watch(() => store.currentSessionCards.length, () => {
 
       </aside>
 
+    </div>
+
+    <!-- ============================================== -->
+    <!-- 终局结算大画框 (Full-Frame Dramatic Climax Modal) -->
+    <!-- 全屏置顶覆盖，杜绝任何分栏穿透与层级错位 -->
+    <!-- ============================================== -->
+    <div 
+      v-if="store.isSoftLocked || store.gameOver" 
+      class="fixed inset-0 z-40 bg-black/80 flex items-center justify-center p-3 md:p-6 backdrop-blur-sm overflow-y-auto"
+    >
+      <div class="comic-border-lg bg-[#FFFEF0] w-full max-w-lg flex flex-col relative overflow-hidden shadow-[8px_8px_0_#000] p-4 md:p-6 my-auto animate-card-smash">
+        <!-- 破产/结算专属美漫特刊副标 -->
+        <div class="w-full flex justify-between items-center border-b-3 border-black pb-2 mb-3 shrink-0">
+          <span class="bg-black text-[#FFD700] px-2.5 py-0.5 font-title text-xs tracking-wider border border-black">
+            {{ store.isSoftLocked ? 'CLIMAX ISSUE • 战报特刊' : 'VICTORY ARCHIVE • 凯旋密档' }}
+          </span>
+          <span class="text-xs font-title text-slate-800 tracking-tight font-black">
+            {{ store.isSoftLocked ? 'MISSION STATUS: TERMINATED' : 'MISSION STATUS: ACCOMPLISHED' }}
+          </span>
+        </div>
+
+        <!-- 核心视觉区：完全脱离 clip-path 裁切，绝无遮挡，杜绝审美疲劳 -->
+        <div class="flex flex-col items-center justify-center my-1 w-full">
+          
+          <!-- 1. 宣告破产：复古美漫警戒警报印章 (Danger / Bankruptcy Seal) -->
+          <div v-if="store.isSoftLocked" class="relative my-2 flex flex-col items-center">
+            <!-- 纯黑实体立体投影底块 -->
+            <div class="absolute inset-0 bg-black translate-x-2 translate-y-2 rounded-sm"></div>
+            
+            <!-- 警报印章框 -->
+            <div class="relative bg-[#E23636] border-4 border-black px-6 py-2.5 flex flex-col items-center text-center transform -rotate-1 shadow-inner">
+              <!-- 顶部警报斜条纹 -->
+              <div class="w-full flex items-center justify-between text-[11px] font-title text-[#FFD700] tracking-widest border-b-2 border-black pb-1 mb-1.5 gap-3">
+                <span class="font-black">/// DANGER</span>
+                <span class="bg-black text-white px-1.5 py-0.2 text-[9px] font-bold">BANKRUPTCY</span>
+                <span class="font-black">CRISIS ///</span>
+              </div>
+              
+              <!-- 核心文字：绝无 clip-path，CRASH! 每一个字母清晰可见 -->
+              <div class="flex items-center gap-3 py-1">
+                <Icon icon="mdi:skull-crossbones" class="text-4xl md:text-5xl text-[#FFD700] drop-shadow-[0_2px_0_#000]" />
+                <span class="font-title text-5xl md:text-6xl text-[#FFD700] comic-text-shadow tracking-wider leading-none">
+                  CRASH!
+                </span>
+              </div>
+              
+              <!-- 底部战况封签 -->
+              <div class="w-full bg-black text-white text-[11px] font-title px-2 py-0.5 mt-1 tracking-wider border-t-2 border-black">
+                军饷告罄 • 宣告破产
+              </div>
+            </div>
+          </div>
+
+          <!-- 2. 急流勇退：荣耀凯旋金牌勋章 (Triumph & Victory Medal) -->
+          <div v-else class="relative my-2 flex flex-col items-center">
+            <div class="absolute inset-0 bg-black translate-x-2 translate-y-2 rounded-sm"></div>
+            
+            <div class="relative bg-gradient-to-b from-[#FFF176] to-[#FFD700] border-4 border-black px-6 py-2.5 flex flex-col items-center text-center transform rotate-1 shadow-inner">
+              <div class="w-full flex items-center justify-between text-[11px] font-title text-slate-900 tracking-widest border-b-2 border-black pb-1 mb-1.5 gap-3">
+                <span class="font-black">★ HONOR</span>
+                <span class="bg-black text-[#FFD700] px-1.5 py-0.2 text-[9px] font-bold">VICTORY</span>
+                <span class="font-black">RETREAT ★</span>
+              </div>
+              
+              <div class="flex items-center gap-3 py-1">
+                <Icon icon="mdi:trophy-award" class="text-4xl md:text-5xl text-red-600 drop-shadow-[0_2px_0_#000]" />
+                <span class="font-title text-4xl md:text-5xl text-slate-950 comic-text-shadow tracking-wider leading-none">
+                  TRIUMPH!
+                </span>
+              </div>
+              
+              <div class="w-full bg-black text-[#FFD700] text-[11px] font-title px-2 py-0.5 mt-1 tracking-wider border-t-2 border-black">
+                急流勇退 • 凯旋归档
+              </div>
+            </div>
+          </div>
+
+          <!-- 结局大标题 -->
+          <h3 class="font-title text-2xl md:text-3xl text-black comic-text-shadow mt-2 mb-2 leading-none text-center">
+            {{ store.isSoftLocked ? '军饷告罄 • 宣告破产！' : '急流勇退 • 凯旋结算！' }}
+          </h3>
+
+          <!-- 叙事便签 -->
+          <p class="text-xs md:text-sm font-bold text-slate-800 mb-3 speech-bubble p-3 w-full text-center">
+            {{ store.isSoftLocked ? '“所有的军饷与后备资源均已耗尽，但这并不是终点，量子多元宇宙正在重组！”' : '“你在巅峰时刻选择保存实力，积蓄的大笔战资将成为下一个轮回的基石！”' }}<br/>
+            本局累计入账达到 <span class="text-red-600 font-title text-lg md:text-xl">{{ store.totalEarned }} G</span>
+          </p>
+
+          <!-- 狂热点转化勋章条 -->
+          <div class="comic-border bg-[#FFF9C4] p-3 w-full mb-4 transform -rotate-0.5 shadow-[3px_3px_0_#000] text-center">
+            <div class="text-xs font-bold text-slate-700">根据战资转化的跨轮回狂热点：</div>
+            <div class="font-title text-3xl md:text-4xl text-[#1E90FF] comic-text-shadow leading-tight">
+              +{{ Math.floor(store.totalEarned / 50) }} 狂热点
+            </div>
+          </div>
+
+          <!-- 交互按钮组 -->
+          <div class="flex flex-col sm:flex-row gap-3 justify-center w-full">
+            <button 
+              @click="showMetaTree = true" 
+              class="comic-btn bg-[#1E90FF] hover:bg-blue-400 text-[#FFD700] px-4 py-2.5 text-sm md:text-base flex items-center justify-center gap-1.5 cursor-pointer flex-1"
+            >
+              <Icon icon="mdi:atom-variant" class="text-lg animate-spin" style="animation-duration: 6s;" />
+              进入多元宇宙天赋树 ({{ store.metaPoints }}点)
+            </button>
+
+            <button 
+              @click="store.restartGame(); showMetaTree = false; triggerSfx('REBIRTH!', 'yellow')" 
+              class="comic-btn bg-[#00D084] hover:bg-emerald-400 text-black px-5 py-2.5 text-sm md:text-base font-title cursor-pointer flex-1"
+            >
+              开启崭新轮回！
+            </button>
+          </div>
+
+        </div>
+
+        <!-- 底部版权提示 -->
+        <div class="text-[10px] text-slate-500 font-bold shrink-0 mt-3 text-center border-t border-black/20 pt-1.5">
+          AMAZING GACHA TALES • MULTIVERSE ROGUELIKE CHRONICLES
+        </div>
+      </div>
     </div>
 
     <!-- ============================================== -->

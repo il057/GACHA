@@ -41,7 +41,7 @@ export class EffectManager {
     return Math.max(0, currentPrice);
   }
 
-  // 计算卖出能获得的钱
+  // 计算卖出能获得的钱 (允许初始为0G，保证白板非酋抽卡会亏损)
   getModifiedCardValue(card: Card, isNew: boolean = false): number {
     let currentValue = card.baseValue;
     for (const mod of this.modifiers) {
@@ -49,7 +49,7 @@ export class EffectManager {
         currentValue = mod.apply({ card, value: currentValue, isNew }) || currentValue;
       }
     }
-    return Math.max(1, Math.floor(currentValue));
+    return Math.max(0, Math.floor(currentValue));
   }
 
   // 计算每抽的额外返款 (例如海洋包全鱼羁绊)

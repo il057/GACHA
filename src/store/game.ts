@@ -52,7 +52,7 @@ export const saveGameState = (state: StoreState) => {
 export const useGameStore = defineStore('game', {
   state: (): StoreState => {
     const saved = loadGameState();
-    const defaultStart = 200;
+    const defaultStart = 100;
     const initialCoins = saved.coins ?? defaultStart;
     return {
       coins: initialCoins,
@@ -79,12 +79,22 @@ export const useGameStore = defineStore('game', {
     },
 
     sellAllPendingValue: (state) => {
-      return state.currentSessionCards.reduce((sum, c) => sum + engine.effectManager.getModifiedCardValue(c), 0);
+      const baseVal = state.currentSessionCards.reduce((sum, c) => sum + engine.effectManager.getModifiedCardValue(c), 0);
+      const overclockLvl = state.upgrades['upgrade_overclock'] || 0;
+      const overclockBonus = overclockLvl > 0 ? (overclockLvl * 0.05) : 0;
+      const recycleLvl = state.metaUpgrades['ms_recycle'] || 0;
+      const recycleBonus = recycleLvl > 0 ? (recycleLvl * 0.04) : 0;
+      return Math.floor(baseVal * (1 + overclockBonus + recycleBonus));
     },
 
     collectNewAndSellRestValue: (state) => {
       let val = 0;
       const tempLib = { ...state.library };
+      const overclockLvl = state.upgrades['upgrade_overclock'] || 0;
+      const overclockBonus = overclockLvl > 0 ? (overclockLvl * 0.05) : 0;
+      const recycleLvl = state.metaUpgrades['ms_recycle'] || 0;
+      const recycleBonus = recycleLvl > 0 ? (recycleLvl * 0.04) : 0;
+
       for (const c of state.currentSessionCards) {
         const packCards = mockCards.filter(pc => pc.packId === c.packId);
         let minCount = 999;
@@ -102,7 +112,7 @@ export const useGameStore = defineStore('game', {
           val += engine.effectManager.getModifiedCardValue(c);
         }
       }
-      return val;
+      return Math.floor(val * (1 + overclockBonus + recycleBonus));
     },
     
     // 获取指定羁绊的星级 (最大5星)
@@ -126,105 +136,200 @@ export const useGameStore = defineStore('game', {
   },
 
   actions: {
-      updateCoins(amount: number) {
-        this.coins += amount;
-        this.totalEarned += amount;
-      },
+    updateCoins(amount: number) {
+      this.coins += amount;
+      this.totalEarned += amount;
+    },
+
     initEngine() {
       // 重新绑定所有拦截器
       engine.effectManager = new GachaEngine().effectManager; 
+
+      // 局外天赋：共鸣大师 (ms_synergy_master) 强化倍率
+      const msSynLvl = this.metaUpgrades['ms_synergy_master'] || 0;
+      const synMultiplier = 1 + (msSynLvl * 0.08);
       
-      // -- 结算羁绊 (基于星级) --
+      // ============================================
+      // 1. 乞丐保底包羁绊
+      // ============================================
+      // 1.1 全图鉴 [麻雀变凤凰]：绝对概率加成 (Additive Bonus)
       const pityStars = this.getSynergyStars('pack_pity', 'pity_all');
       if (pityStars > 0) {
         engine.effectManager.addModifier({
-          id: 'bond_pity', type: 'rate',
-          apply: ({ rates }) => {
-            const boost = 1 + (pityStars * 0.1); 
-            return { ...rates, SR: rates.SR * boost, SSR: rates.SSR * boost };
+          id: 'bond_pity', 
+          type: 'rate',
+          apply: ({ rates, pack }) => {
+            if (pack?.id !== 'pack_pity') return rates;
+            const addSR = Number((pityStars * 1.0 * synMultiplier).toFixed(1));
+            const addSSR = Number((pityStars * 0.3 * synMultiplier).toFixed(1));
+            // 扣除 N 权重，加算至 SR 与 SSR 绝对权重
+            const newN = Math.max(10, rates.N - (addSR + addSSR));
+            return {
+              ...rates,
+              N: newN,
+              SR: rates.SR + addSR,
+              SSR: rates.SSR + addSSR
+            };
           }
         });
       }
 
+      // 1.2 工具收藏
       const pityTools = this.getSynergyStars('pack_pity', 'pity_tools');
       if (pityTools > 0) {
         engine.effectManager.addModifier({
-          id: 'bond_pity_tools', type: 'value',
-          apply: ({ value, card }) => card && card.tags?.includes('tool') ? value + (pityTools * 3) : value
+          id: 'bond_pity_tools', 
+          type: 'value',
+          apply: ({ value, card }) => (card && card.packId === 'pack_pity' && card.tags?.includes('tool'))
+            ? value + Math.floor(pityTools * 0.4 * synMultiplier)
+            : value
         });
       }
 
+      // 1.3 顽石共鸣 (修复：只针对保底包石头卡)
       const pityStone = this.getSynergyStars('pack_pity', 'pity_stone');
       if (pityStone > 0) {
         engine.effectManager.addModifier({
-          id: 'bond_pity_stone', type: 'value',
-          apply: ({ value, card }) => card && card.tags?.includes('stone') ? value + (pityStone * 8) : value
+          id: 'bond_pity_stone', 
+          type: 'value',
+          apply: ({ value, card }) => (card && card.packId === 'pack_pity' && card.tags?.includes('stone'))
+            ? value + Math.floor(pityStone * 0.6 * synMultiplier)
+            : value
         });
       }
 
+      // ============================================
+      // 2. 神秘森林包羁绊
+      // ============================================
       const forestStars = this.getSynergyStars('pack_forest', 'forest_all');
       if (forestStars > 0) {
         engine.effectManager.addModifier({
-          id: 'bond_forest', type: 'value',
-          apply: ({ value }) => Math.floor(value * (1 + forestStars * 0.15))
+          id: 'bond_forest', 
+          type: 'value',
+          apply: ({ value }) => Math.floor(value * (1 + forestStars * 0.12 * synMultiplier))
         });
       }
 
       const forestPlants = this.getSynergyStars('pack_forest', 'forest_plants');
       if (forestPlants > 0) {
         engine.effectManager.addModifier({
-          id: 'bond_forest_plants', type: 'value',
-          apply: ({ value, card }) => card && card.tags?.includes('plant') ? value + (forestPlants * 15) : value
+          id: 'bond_forest_plants', 
+          type: 'value',
+          apply: ({ value, card }) => (card && card.packId === 'pack_forest' && card.tags?.includes('plant'))
+            ? value + Math.round(forestPlants * 4 * synMultiplier)
+            : value
         });
       }
 
       const forestFood = this.getSynergyStars('pack_forest', 'forest_food');
       if (forestFood > 0) {
         engine.effectManager.addModifier({
-          id: 'bond_forest_food', type: 'price',
-          apply: ({ price, pack }) => pack?.id === 'pack_forest' ? Math.max(1, price - (forestFood * 2)) : price
+          id: 'bond_forest_food', 
+          type: 'price',
+          apply: ({ price, pack }) => pack?.id === 'pack_forest' 
+            ? Math.max(1, price - Math.round(forestFood * 2 * synMultiplier)) 
+            : price
         });
       }
 
+      // ============================================
+      // 3. 深邃海洋包羁绊
+      // ============================================
       const oceanStars = this.getSynergyStars('pack_ocean', 'ocean_all');
       if (oceanStars > 0) {
         engine.effectManager.addModifier({
-          id: 'bond_ocean', type: 'refund',
-          apply: ({ refund, pack }) => refund + Math.floor((pack?.basePrice || 20) * (oceanStars * 0.04))
+          id: 'bond_ocean', 
+          type: 'refund',
+          apply: ({ refund, pack }) => refund + Math.floor((pack?.basePrice || 120) * (oceanStars * 0.05 * synMultiplier))
         });
       }
 
       const oceanFishStars = this.getSynergyStars('pack_ocean', 'ocean_fish');
       if (oceanFishStars > 0) {
         engine.effectManager.addModifier({
-          id: 'bond_ocean_fish', type: 'value',
-          apply: ({ value, card }) => card && card.tags?.includes('fish') ? value + (oceanFishStars * 35) : value
+          id: 'bond_ocean_fish', 
+          type: 'value',
+          apply: ({ value, card }) => (card && card.packId === 'pack_ocean' && card.tags?.includes('fish'))
+            ? value + Math.round(oceanFishStars * 10 * synMultiplier)
+            : value
         });
       }
 
+      // ============================================
+      // 4. 灼热烈焰包羁绊
+      // ============================================
       const fireStars = this.getSynergyStars('pack_fire', 'fire_all');
       if (fireStars > 0) {
         engine.effectManager.addModifier({
-          id: 'bond_fire', type: 'price',
-          apply: ({ price, pack }) => pack?.id === 'pack_fire' ? Math.max(1, Math.floor(price * (1 - fireStars * 0.08))) : price
+          id: 'bond_fire', 
+          type: 'price',
+          apply: ({ price, pack }) => pack?.id === 'pack_fire' 
+            ? Math.max(1, Math.floor(price * (1 - fireStars * 0.10 * synMultiplier))) 
+            : price
         });
       }
 
+      // 4.2 余烬共鸣 (修复：只针对烈焰包 cinder 标签，彻底杜绝污染保底包石头！)
       const fireStone = this.getSynergyStars('pack_fire', 'fire_stone');
       if (fireStone > 0) {
         engine.effectManager.addModifier({
-          id: 'bond_fire_stone', type: 'value',
-          apply: ({ value, card }) => card && card.tags?.includes('stone') ? value + (fireStone * 80) : value
+          id: 'bond_fire_cinder', 
+          type: 'value',
+          apply: ({ value, card }) => (card && card.packId === 'pack_fire' && card.tags?.includes('cinder'))
+            ? value + Math.round(fireStone * 15 * synMultiplier)
+            : value
         });
       }
 
-      // -- 结算升级节点 --
+      // ============================================
+      // 5. 蒸汽机械包羁绊
+      // ============================================
+      const machinaGear = this.getSynergyStars('pack_machina', 'machina_gear');
+      if (machinaGear > 0) {
+        engine.effectManager.addModifier({
+          id: 'bond_machina_gear', 
+          type: 'value',
+          apply: ({ value, card }) => (card && card.packId === 'pack_machina' && card.tags?.includes('gear'))
+            ? value + Math.round(machinaGear * 40 * synMultiplier)
+            : value
+        });
+      }
+
+      // ============================================
+      // 6. 虚空星界包羁绊
+      // ============================================
+      const astralStars = this.getSynergyStars('pack_astral', 'astral_all');
+      if (astralStars > 0) {
+        engine.effectManager.addModifier({
+          id: 'bond_astral_all', 
+          type: 'value',
+          apply: ({ value, card }) => (card && card.rarity === 'SSR')
+            ? Math.floor(value * (1 + astralStars * 0.25 * synMultiplier))
+            : value
+        });
+      }
+
+      const astralVoid = this.getSynergyStars('pack_astral', 'astral_void');
+      if (astralVoid > 0) {
+        engine.effectManager.addModifier({
+          id: 'bond_astral_void', 
+          type: 'value',
+          apply: ({ value, card }) => (card && card.packId === 'pack_astral')
+            ? value + Math.round(astralVoid * 150 * synMultiplier)
+            : value
+        });
+      }
+
+      // ============================================
+      // 7. 结算局内升级节点 (In-Run Boosts)
+      // ============================================
       const luckLvl = this.upgrades['upgrade_luck'] || 0;
       if (luckLvl > 0) {
         engine.effectManager.addModifier({
-          id: 'upg_luck', type: 'rate',
+          id: 'upg_luck', 
+          type: 'rate',
           apply: ({ rates }) => {
-            const multi = 1 + (luckLvl * 0.15); 
+            const multi = 1 + (luckLvl * 0.12); 
             return { ...rates, SR: rates.SR * multi, SSR: rates.SSR * multi };
           }
         });
@@ -233,15 +338,17 @@ export const useGameStore = defineStore('game', {
       const valueLvl = this.upgrades['upgrade_value'] || 0;
       if (valueLvl > 0) {
         engine.effectManager.addModifier({
-          id: 'upg_value', type: 'value',
-          apply: ({ value }) => Math.floor(value * (1 + valueLvl * 0.10))
+          id: 'upg_value', 
+          type: 'value',
+          apply: ({ value }) => Math.floor(value * (1 + valueLvl * 0.08))
         });
       }
       
       const refundPctLvl = this.upgrades['upgrade_refund_pct'] || 0;
       if (refundPctLvl > 0) {
         engine.effectManager.addModifier({
-          id: 'upg_refund_pct', type: 'refund',
+          id: 'upg_refund_pct', 
+          type: 'refund',
           apply: ({ refund, pack }) => refund + Math.floor((pack?.basePrice || 10) * (refundPctLvl * 0.02))
         });
       }
@@ -249,7 +356,8 @@ export const useGameStore = defineStore('game', {
       const refundLvl = this.upgrades['upgrade_refund'] || 0;
       if (refundLvl > 0) {
         engine.effectManager.addModifier({
-          id: 'upg_refund', type: 'refund',
+          id: 'upg_refund', 
+          type: 'refund',
           apply: ({ refund }) => refund + refundLvl
         });
       }
@@ -257,39 +365,61 @@ export const useGameStore = defineStore('game', {
       const discountLvl = this.upgrades['upgrade_discount'] || 0;
       if (discountLvl > 0) {
         engine.effectManager.addModifier({
-          id: 'upg_discount', type: 'price',
+          id: 'upg_discount', 
+          type: 'price',
           apply: ({ price }) => Math.max(1, Math.floor(price * (1 - discountLvl * 0.02)))
         });
       }
 
-        // -- 结算轮回天赋 --
-        const msLuckLvl = this.metaUpgrades['ms_luck'] || 0;
-        if (msLuckLvl > 0) {
-          engine.effectManager.addModifier({
-            id: 'meta_luck', type: 'rate',
-            apply: ({ rates }) => {
-              const multi = 1 + (msLuckLvl * 0.05);
-              return { ...rates, SR: rates.SR * multi, SSR: rates.SSR * multi };
-            }
-          });
-        }
+      // ============================================
+      // 8. 结算轮回天赋 (Multiverse Meta Skills)
+      // ============================================
+      const msLuckLvl = this.metaUpgrades['ms_luck'] || 0;
+      if (msLuckLvl > 0) {
+        engine.effectManager.addModifier({
+          id: 'meta_luck', 
+          type: 'rate',
+          apply: ({ rates }) => {
+            const multi = 1 + (msLuckLvl * 0.03);
+            return { ...rates, SR: rates.SR * multi, SSR: rates.SSR * multi };
+          }
+        });
+      }
 
-        const msValueLvl = this.metaUpgrades['ms_value'] || 0;
-        if (msValueLvl > 0) {
-          engine.effectManager.addModifier({
-            id: 'meta_value', type: 'value',
-            apply: ({ value }) => Math.floor(value * (1 + msValueLvl * 0.20))
-          });
-        }
+      const msValueLvl = this.metaUpgrades['ms_value'] || 0;
+      if (msValueLvl > 0) {
+        engine.effectManager.addModifier({
+          id: 'meta_value', 
+          type: 'value',
+          apply: ({ value }) => Math.floor(value * (1 + msValueLvl * 0.10))
+        });
+      }
 
-        const msDiscountLvl = this.metaUpgrades['ms_discount'] || 0;
-        if (msDiscountLvl > 0) {
-          engine.effectManager.addModifier({
-            id: 'meta_discount', type: 'price',
-            apply: ({ price }) => Math.max(1, Math.floor(price * (1 - msDiscountLvl * 0.05)))
-          });
-        }
+      const msDiscountLvl = this.metaUpgrades['ms_discount'] || 0;
+      if (msDiscountLvl > 0) {
+        engine.effectManager.addModifier({
+          id: 'meta_discount', 
+          type: 'price',
+          apply: ({ price }) => Math.max(1, Math.floor(price * (1 - msDiscountLvl * 0.03)))
+        });
+      }
+
       this.checkGameOver();
+    },
+
+    getUpgradePrice(configId: string): number {
+      const config = availableUpgrades.find(u => u.id === configId);
+      if (!config) return 999999;
+      const currentLevel = this.upgrades[config.id] || 0;
+      let price = Math.floor(config.basePrice * Math.pow(config.priceMultiplier, currentLevel));
+      
+      // 机械包全图鉴折扣：工业革命 (每星-6%)
+      const machinaStars = this.getSynergyStars('pack_machina', 'machina_all');
+      if (machinaStars > 0) {
+        const discount = machinaStars * 0.06;
+        price = Math.max(1, Math.floor(price * (1 - discount)));
+      }
+      return price;
     },
 
     buyUpgrade(configId: string) {
@@ -299,7 +429,7 @@ export const useGameStore = defineStore('game', {
       const currentLevel = this.upgrades[config.id] || 0;
       if (currentLevel >= config.maxLevel) return;
       
-      const price = Math.floor(config.basePrice * Math.pow(config.priceMultiplier, currentLevel));
+      const price = this.getUpgradePrice(configId);
       if (this.coins >= price) {
         this.coins -= price;
         this.upgrades[config.id] = currentLevel + 1;
@@ -352,7 +482,17 @@ export const useGameStore = defineStore('game', {
       
       const price = engine.getPackPrice(pack) * count;
       if (this.coins >= price) {
-        const results = engine.drawMultiple(pack, count);
+        let results = engine.drawMultiple(pack, count);
+
+        // 连抽风暴 (upgrade_barrage)：十连抽额外赠送卡牌
+        if (count >= 10) {
+          const barrageLvl = this.upgrades['upgrade_barrage'] || 0;
+          if (barrageLvl > 0) {
+            const bonusCards = engine.drawMultiple(pack, barrageLvl);
+            results.push(...bonusCards);
+          }
+        }
+
         this.currentSessionCards.push(...results);
         this.totalPullsThisRun += count;
         this.coins -= price; 
@@ -368,6 +508,7 @@ export const useGameStore = defineStore('game', {
       let earned = this.sellAllPendingValue;
       this.currentSessionCards = [];
       this.updateCoins(earned);
+      this.checkGameOver();
     },
 
     collectAllPending() {
@@ -390,6 +531,10 @@ export const useGameStore = defineStore('game', {
     collectNewAndSellRest() {
       let earned = 0;
       let newlyCollected = false;
+      const overclockLvl = this.upgrades['upgrade_overclock'] || 0;
+      const overclockBonus = overclockLvl > 0 ? (overclockLvl * 0.05) : 0;
+      const recycleLvl = this.metaUpgrades['ms_recycle'] || 0;
+      const recycleBonus = recycleLvl > 0 ? (recycleLvl * 0.04) : 0;
       
       for (const card of this.currentSessionCards) {
         const packCards = mockCards.filter(pc => pc.packId === card.packId);
@@ -414,13 +559,18 @@ export const useGameStore = defineStore('game', {
         this.initEngine();
       }
       this.currentSessionCards = [];
-      this.updateCoins(earned);
+      this.updateCoins(Math.floor(earned * (1 + overclockBonus + recycleBonus)));
+      this.checkGameOver();
     },
 
     sellSelected(indices: number[]) {
-      // Sort descending to not mess up indices during splice
       const sortedIndices = [...indices].sort((a, b) => b - a);
       let earned = 0;
+      const overclockLvl = this.upgrades['upgrade_overclock'] || 0;
+      const overclockBonus = overclockLvl > 0 ? (overclockLvl * 0.05) : 0;
+      const recycleLvl = this.metaUpgrades['ms_recycle'] || 0;
+      const recycleBonus = recycleLvl > 0 ? (recycleLvl * 0.04) : 0;
+
       for (const index of sortedIndices) {
         const card = this.currentSessionCards[index];
         if (card) {
@@ -428,7 +578,8 @@ export const useGameStore = defineStore('game', {
           this.currentSessionCards.splice(index, 1);
         }
       }
-      this.updateCoins(earned);
+      this.updateCoins(Math.floor(earned * (1 + overclockBonus + recycleBonus)));
+      this.checkGameOver();
     },
 
     collectSelected(indices: number[]) {
@@ -461,8 +612,9 @@ export const useGameStore = defineStore('game', {
         const card = mockCards.find(c => c.id === cardId);
         if (card) {
           this.updateCoins(engine.effectManager.getModifiedCardValue(card));
-          this.initEngine(); // Re-calc synergies
+          this.initEngine();
         }
+        this.checkGameOver();
       }
     },
 
@@ -481,14 +633,23 @@ export const useGameStore = defineStore('game', {
         totalValue += engine.effectManager.getModifiedCardValue(c);
       }
       
-      // 整套售出: 增加 50% 额外收益
-      const bonusMultiplier = 1.5;
+      // 整套售出: 基础增加 50% 额外收益 + 变现超频加成
+      const overclockLvl = this.upgrades['upgrade_overclock'] || 0;
+      const bonusMultiplier = 1.5 + (overclockLvl * 0.05);
       this.updateCoins(Math.floor(totalValue * bonusMultiplier));
       this.initEngine();
+      this.checkGameOver();
     },
 
     restartGame() {
-      const startCoins = 200 + (this.metaUpgrades["ms_start_funds"] || 0) * 150;
+      // 若处于软锁且尚未结算，先自动完成结算
+      if (this.isSoftLocked && !this.gameOver) {
+        this.surrender();
+      }
+
+      // 遗产继承：每级 +15G（满级 100 + 150 = 250G）
+      const startBonus = (this.metaUpgrades["ms_start_funds"] || 0) * 15;
+      const startCoins = 100 + startBonus;
       this.coins = startCoins;
       this.totalEarned = startCoins;
       this.totalPullsThisRun = 0;
@@ -499,7 +660,6 @@ export const useGameStore = defineStore('game', {
       this.initEngine();
     },
     
-    // For App.vue specifically
     getEngine() {
       return engine;
     }
