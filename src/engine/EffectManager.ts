@@ -53,11 +53,11 @@ export class EffectManager {
   }
 
   // 计算每抽的额外返款 (例如海洋包全鱼羁绊)
-  getPullRefund(): number {
+  getPullRefund(pack?: PackConfig): number {
     let refund = 0;
     for (const mod of this.modifiers) {
       if (mod.type === 'refund') {
-        refund += mod.apply({ refund }) || 0;
+        refund = mod.apply({ refund, pack }) || refund;
       }
     }
     return refund;

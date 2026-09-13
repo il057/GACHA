@@ -1,5 +1,6 @@
 import type { Card, PackConfig, Rarity } from '../types';
 import { EffectManager } from './EffectManager';
+import { mockCards } from '../utils/mockData';
 
 export class GachaEngine {
   public effectManager: EffectManager;
@@ -16,17 +17,16 @@ export class GachaEngine {
     return this.effectManager.getModifiedPrice(pack);
   }
 
-  public getRefundAmount(): number {
-    return this.effectManager.getPullRefund();
+  public getRefundAmount(pack?: PackConfig): number {
+    return this.effectManager.getPullRefund(pack);
   }
 
   public drawOne(pack: PackConfig): Card {
     const rates = this.getRates(pack);
     const totalWeight = Object.values(rates).reduce((sum, weight) => sum + weight, 0);
-    
     let roll = Math.random() * totalWeight;
     let selectedRarity: Rarity = 'N';
-    
+
     for (const [rarity, weight] of Object.entries(rates)) {
       if (roll < weight) {
         selectedRarity = rarity as Rarity;
@@ -34,10 +34,16 @@ export class GachaEngine {
       }
       roll -= weight;
     }
+
+    const packCards = mockCards.filter(c => c.packId === pack.id);
+    const rarityPool = packCards.filter(card => card.rarity === selectedRarity);
     
-    const rarityPool = pack.pool.filter(card => card.rarity === selectedRarity);
+    // 如果没有这个稀有度的卡，就随机给一张该包的卡兜底
     if (rarityPool.length === 0) {
-      return pack.pool[Math.floor(Math.random() * pack.pool.length)];
+      if (packCards.length === 0) {
+        throw new Error(`Pack ${pack.id} has no cards defined in mockData.`);
+      }
+      return packCards[Math.floor(Math.random() * packCards.length)];
     }
 
     return rarityPool[Math.floor(Math.random() * rarityPool.length)];
